@@ -7,6 +7,8 @@ Frucht-Karten im Bogen-Karussell, der Becher wechselt je nach Sorte Farbe, Name 
 - Auto-Play, Klick auf Karte, Swipe/Drag, Pfeiltasten, horizontales Scrollen
 - Warenkorb-Zähler über die Preis-Karte
 - Scroll-Parallax: der Becher wandert beim Runterscrollen mit durch alle Abschnitte (Herkunft, Schichten, Sorten, Filialen) und dreht/neigt sich dabei; Hero-Ebenen und Deko bewegen sich in eigenen Geschwindigkeiten
+- „Dive in“: der Becher wächst beim Scrollen bis er den ganzen Bildschirm füllt, mit aufsteigenden Blasen und 3D-Buchstaben-Animation
+- Geglättete Render-Schleife (weiches Nachziehen), Laufband mit Scroll-Tempo-Neigung, Maus-Tilt am Becher, Spritzer beim Sortenwechsel, Fly-to-Cart mit schwebendem Mini-Warenkorb
 - Sorten-Kacheln im Abschnitt „Pick your fruit“ ändern den Becher live
 - Responsive (Desktop + Mobile), `prefers-reduced-motion` wird respektiert
 

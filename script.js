@@ -95,6 +95,7 @@
       fruitLayer.style.opacity = "0";
     }
     if (instant) { flavourEl.textContent = f.name; return; }
+    fx.splash(f.colors || ["#7a9a3c", "#a9b766", "#f1f2ea"]);
     flavourEl.classList.add("is-out");
     setTimeout(() => {
       flavourEl.textContent = f.name;
@@ -158,7 +159,8 @@
     cartCount += 1;
     badge.hidden = false;
     badge.textContent = cartCount;
-    badge.classList.remove("bump"); void badge.offsetWidth; badge.classList.add("bump");
+    miniCount.textContent = cartCount;
+    flyToCart();
   });
   document.querySelectorAll('a[href="#"]').forEach((a) => a.addEventListener("click", (e) => e.preventDefault()));
 
@@ -188,77 +190,253 @@
   });
   function syncTiles(f) { tiles.forEach((t) => t.b.classList.toggle("is-active", t.f === f)); }
 
-  // ---------- the cup travels with the scroll ----------
+  // ---------- the cup travels with the scroll (smoothed render loop) ----------
   const floatCup = document.getElementById("floatCup");
   const meta = document.getElementById("meta");
   const anchors = [...document.querySelectorAll("[data-anchor]")];
   const hillsFront = document.querySelector(".hills--front");
   const hillsSide = document.querySelector(".hills--side");
   const speedEls = [...document.querySelectorAll("[data-speed]")];
+  const marqueeRows = [...document.querySelectorAll(".marquee__row")].map((row) => ({
+    dir: +row.dataset.dir, track: row.querySelector(".marquee__track"), half: 0,
+  }));
+  const fxText = document.getElementById("fxText");
+  const miniCart = document.getElementById("miniCart");
+  const miniCount = document.getElementById("miniCount");
+  const root = document.documentElement;
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
   const smooth = (t) => t * t * (3 - 2 * t);
   const lerp = (a, b, t) => a + (b - a) * t;
 
+  // split the dive-in sentence into letters
+  const fxWords = fxText.textContent.trim().split(" ");
+  fxText.innerHTML = fxWords.map((w) => `<span class="w">${[...w].map((c) => `<span class="c">${c}</span>`).join("")}</span>`).join(" ");
+  const fxChars = [...fxText.querySelectorAll(".c")];
+
+  let baseW = 300, A = [], speedBase = [], vw = innerWidth, vh = innerHeight;
   function measure() {
-    const sy = scrollY, vh = innerHeight;
+    vw = innerWidth; vh = innerHeight;
+    const sy = scrollY, maxS = root.scrollHeight - vh;
     let last = -Infinity;
-    return anchors.map((el, i) => {
+    A = anchors.map((el, i) => {
       const r = el.getBoundingClientRect();
-      const doc = { x: r.left + scrollX, y: r.top + sy, w: r.width, h: r.height };
-      // scroll position at which this anchor is centred in the viewport (hero: top of page)
-      let at = i === 0 ? 0 : doc.y + doc.h / 2 - vh / 2 + (el.dataset.meta === "1" ? 40 : 0);
-      const maxS = document.documentElement.scrollHeight - vh;
-      at = Math.max(Math.min(at, maxS - (anchors.length - 1 - i) * 2), last + 1); last = at;
-      return { ...doc, at, rot: +el.dataset.rot || 0, meta: +el.dataset.meta };
+      let doc, at, hold = 0;
+      if (el.hasAttribute("data-zoom")) {
+        const sec = el.closest(".zoom");
+        const sr = sec.getBoundingClientRect();
+        const st = el.parentElement.getBoundingClientRect();
+        const secTop = sr.top + sy;
+        doc = { x: r.left + scrollX, y: secTop + (r.top - st.top), w: r.width, h: r.height };
+        at = secTop;
+        hold = sec.offsetHeight - vh;
+      } else {
+        doc = { x: r.left + scrollX, y: r.top + sy, w: r.width, h: r.height };
+        at = i === 0 ? 0 : doc.y + doc.h / 2 - vh / 2 + (el.dataset.meta === "1" ? 40 : 0);
+        at = Math.min(at, maxS - (anchors.length - 1 - i) * 2);
+      }
+      at = Math.max(at, last + 1);
+      last = at + hold;
+      return { ...doc, at, hold, rot: +el.dataset.rot || 0, meta: +el.dataset.meta, zoom: el.hasAttribute("data-zoom") };
     });
+    // parallax elements: remember their untranslated centre in document space
+    speedBase = speedEls.map((el) => {
+      const prev = el.style.translate; el.style.translate = "0 0";
+      const r = el.getBoundingClientRect();
+      el.style.translate = prev;
+      return r.top + sy + r.height / 2;
+    });
+    marqueeRows.forEach((m) => (m.half = m.track.scrollWidth / 2));
+    baseW = A[0].w;
+    floatCup.style.width = `${baseW}px`;
   }
-  let A = measure();
-  function frame() {
-    const s = scrollY;
-    let i = 0;
-    while (i < A.length - 1 && s >= A[i + 1].at) i++;
-    const a = A[i], b = A[Math.min(i + 1, A.length - 1)];
-    const raw = a === b ? 0 : Math.min(1, Math.max(0, (s - a.at) / (b.at - a.at)));
+
+  // pointer tilt (desktop only)
+  const finePointer = matchMedia("(pointer: fine)").matches;
+  let mx = 0, my = 0, tx = 0, ty = 0;
+  if (finePointer) addEventListener("pointermove", (e) => { mx = e.clientX / vw - 0.5; my = e.clientY / vh - 0.5; }, { passive: true });
+
+  let sm = scrollY, lastSm = sm, vel = 0, zoomK = 0;
+  function render() {
+    const target = scrollY;
+    // ease the rendered scroll towards the real one → fluid, weighted motion
+    sm = reduceMotion ? target : lerp(sm, target, 0.14);
+    if (Math.abs(sm - target) < 0.1) sm = target;
+    const s = sm;
+    vel = lerp(vel, s - lastSm, 0.2); lastSm = s;
+
+    // which segment are we in?
+    let a, b, raw = 0, holdP = -1;
+    for (let i = 0; i < A.length; i++) {
+      if (s < A[i].at) {
+        if (i === 0) { a = b = A[0]; break; }
+        const p = A[i - 1];
+        a = { ...p, y: p.y + p.hold }; b = A[i];
+        raw = clamp01((s - (p.at + p.hold)) / (b.at - (p.at + p.hold)));
+        break;
+      }
+      if (s <= A[i].at + A[i].hold) { a = b = { ...A[i], y: A[i].y + (s - A[i].at) }; holdP = A[i].hold ? (s - A[i].at) / A[i].hold : -1; break; }
+    }
+    if (!a) { const L = A[A.length - 1]; a = b = { ...L, y: L.y + L.hold }; }
+
     const t = smooth(raw);
     const w = lerp(a.w, b.w, t);
     const x = lerp(a.x, b.x, t);
     const y = lerp(a.y, b.y, t);
-    const swing = reduceMotion ? 0 : Math.sin(Math.PI * raw) * (b.x >= a.x ? 9 : -9);
-    const r = lerp(a.rot, b.rot, t) + swing;
-    const sc = reduceMotion ? 1 : 1 + Math.sin(Math.PI * raw) * 0.06;
-    floatCup.style.width = `${w}px`;
-    floatCup.style.transform = `translate(${x}px, ${y}px) rotate(${r}deg) scale(${sc})`;
+    const arc = Math.sin(Math.PI * raw);
+    const swing = reduceMotion ? 0 : arc * (b.x >= a.x ? 10 : -10);
+    let r = lerp(a.rot, b.rot, t) + swing;
+    let sc = reduceMotion ? 1 : 1 + arc * 0.08;
+
+    // dive-in zoom: cup grows until its liquid fills the whole screen
+    zoomK = 0;
+    if (holdP >= 0 && a.zoom) {
+      const grow = smooth(clamp01((holdP - 0.08) / 0.42));
+      const shrink = smooth(clamp01((holdP - 0.8) / 0.2));
+      zoomK = grow * (1 - shrink);
+      const h = w * 1.35;
+      const sMax = Math.max(vw / (w * 0.62), vh / (h * 0.5));
+      sc = Math.pow(sMax, zoomK);
+      r += Math.sin(Math.PI * zoomK) * 8;
+    }
+
+    // pointer tilt fades out while zoomed / travelling
+    tx = lerp(tx, mx, 0.08); ty = lerp(ty, my, 0.08);
+    const tilt = finePointer && !reduceMotion ? (1 - zoomK) * (1 - arc) : 0;
+    // fixed layout width, size comes from scale → no reflow while animating
+    const k = w / baseW, cx = w / 2, cy = w * 1.35 * 0.5;
+    floatCup.style.transform =
+      `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) translate(${cx}px, ${cy}px) perspective(900px) rotateY(${(tx * 22 * tilt).toFixed(2)}deg) rotateX(${(-ty * 14 * tilt).toFixed(2)}deg) rotate(${r.toFixed(2)}deg) scale(${sc.toFixed(4)}) translate(${-cx}px, ${-cy}px) scale(${k.toFixed(4)})`;
+
     if (!document.body.classList.contains("is-intro")) {
-      // label + price fade out mid-flight and come back where the anchor wants them
-      const m = lerp(a.meta, b.meta, t) * (1 - Math.sin(Math.PI * raw) * 0.9);
+      const m = lerp(a.meta, b.meta, t) * (1 - arc * 0.95) * (1 - zoomK);
       meta.style.opacity = m.toFixed(3);
       meta.style.pointerEvents = m > 0.5 ? "" : "none";
     }
+
+    // dive-in sentence: letters flip up one after another once the screen is full
+    const textIn = holdP >= 0 && a.zoom ? clamp01((holdP - 0.42) / 0.22) : 0;
+    const textOut = holdP >= 0 && a.zoom ? clamp01((holdP - 0.74) / 0.08) : 0;
+    const n = fxChars.length;
+    fxChars.forEach((c, i) => {
+      const k = smooth(clamp01(textIn * 1.6 - (i / n) * 0.6)) * (1 - textOut);
+      c.style.opacity = k.toFixed(3);
+      c.style.transform = `translateY(${((1 - k) * 60).toFixed(1)}%) rotateX(${((1 - k) * -80).toFixed(1)}deg)`;
+    });
+
     if (!reduceMotion) {
-      // hero parallax: wheel rises, mountain and headline sink slower than the page
-      const h = Math.min(s, innerHeight * 1.2);
-      wheel.style.translate = `0 ${h * -0.22}px`;
-      hillsFront.style.translate = `0 ${h * 0.16}px`;
-      hillsSide.style.translate = `0 ${h * 0.08}px`;
-      headline.style.translate = `0 ${h * 0.32}px`;
-      headline.style.opacity = Math.max(0, 1 - h / (innerHeight * 0.55)).toFixed(3);
-      const vh = innerHeight;
-      speedEls.forEach((el) => {
-        const rr = el.getBoundingClientRect();
-        if (rr.bottom < -200 || rr.top > vh + 200) return;
-        const d = rr.top + rr.height / 2 - vh / 2;
+      const hh = Math.min(s, vh * 1.2);
+      wheel.style.translate = `0 ${(hh * -0.22).toFixed(1)}px`;
+      hillsFront.style.translate = `0 ${(hh * 0.16).toFixed(1)}px`;
+      hillsSide.style.translate = `0 ${(hh * 0.08).toFixed(1)}px`;
+      headline.style.translate = `0 ${(hh * 0.32).toFixed(1)}px`;
+      headline.style.opacity = Math.max(0, 1 - hh / (vh * 0.55)).toFixed(3);
+      speedEls.forEach((el, i) => {
+        const d = speedBase[i] - s - vh / 2;
+        if (Math.abs(d) > vh * 1.5) return;
         el.style.translate = `0 ${(-d * el.dataset.speed).toFixed(1)}px`;
       });
+      // marquee rows run with the scroll and lean into its speed
+      const skew = Math.max(-14, Math.min(14, vel * 0.35));
+      marqueeRows.forEach((m) => {
+        if (!m.half) return;
+        const off = (((s * 0.7) % m.half) + m.half) % m.half;
+        const xx = m.dir > 0 ? -off : off - m.half;
+        m.track.style.transform = `translate3d(${xx.toFixed(1)}px,0,0) skewX(${(-skew * m.dir).toFixed(2)}deg)`;
+      });
+      root.style.setProperty("--skew", `${Math.max(-5, Math.min(5, vel * 0.12)).toFixed(2)}deg`);
     }
+
+    miniCart.classList.toggle("is-on", target > vh * 0.7);
+    fx.tick(zoomK);
+    requestAnimationFrame(render);
   }
-  let ticking = false;
-  const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { ticking = false; frame(); }); } };
-  addEventListener("scroll", onScroll, { passive: true });
-  const remeasure = () => { A = measure(); frame(); };
+
+  // ---------- fx canvas: bubbles while diving, splash on flavour change ----------
+  const fx = (() => {
+    const cv = document.getElementById("fxCanvas");
+    const ctx = cv.getContext("2d");
+    let dpr = 1, parts = [];
+    function size() {
+      dpr = Math.min(2, devicePixelRatio || 1);
+      cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    size(); addEventListener("resize", size);
+    function splash(colors) {
+      if (reduceMotion) return;
+      const r = floatCup.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > innerHeight) return;
+      const cx = r.left + r.width / 2, cy = r.top + r.height * 0.42;
+      for (let i = 0; i < 46; i++) {
+        const ang = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 9;
+        parts.push({ k: "drop", x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 5,
+          r: 3 + Math.random() * 9, c: colors[i % colors.length], life: 1 });
+      }
+    }
+    function tick(zk) {
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      if (zk > 0.35 && !reduceMotion) {
+        for (let i = 0; i < 3; i++) if (Math.random() < zk) parts.push({
+          k: "bub", x: Math.random() * innerWidth, y: innerHeight + 30, vx: 0, vy: -(1.5 + Math.random() * 4),
+          r: 4 + Math.random() * 26, life: 1, ph: Math.random() * 6,
+        });
+      }
+      parts = parts.filter((p) => p.life > 0 && p.y > -60 && p.y < innerHeight + 80);
+      for (const p of parts) {
+        if (p.k === "drop") {
+          p.vy += 0.38; p.vx *= 0.985; p.x += p.vx; p.y += p.vy; p.life -= 0.012;
+          ctx.globalAlpha = Math.max(0, p.life);
+          ctx.fillStyle = p.c;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, p.r, p.r * (1 + Math.min(1, Math.abs(p.vy) / 14)), Math.atan2(p.vy, p.vx) + Math.PI / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          p.ph += 0.05; p.x += Math.sin(p.ph) * 0.8; p.y += p.vy;
+          p.life -= zk > 0.2 ? 0.002 : 0.04;
+          ctx.globalAlpha = Math.max(0, p.life) * 0.55;
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+          ctx.globalAlpha = Math.max(0, p.life) * 0.35;
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath(); ctx.arc(p.x - p.r * 0.35, p.y - p.r * 0.35, p.r * 0.22, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+    return { splash, tick };
+  })();
+
+  // ---------- fly-to-cart ----------
+  function flyToCart() {
+    const f = current();
+    const cartBtn = document.querySelector(".pill__btn.is-dark");
+    const target = miniCart.classList.contains("is-on") ? miniCart : cartBtn;
+    const from = priceBtn.getBoundingClientRect(), to = target.getBoundingClientRect();
+    const img = document.createElement("img");
+    img.src = f.imgs[0]; img.className = "flyer"; img.alt = "";
+    document.body.appendChild(img);
+    const x0 = from.left + from.width / 2 - 28, y0 = from.top + from.height / 2 - 28;
+    const x1 = to.left + to.width / 2 - 28, y1 = to.top + to.height / 2 - 28;
+    const peak = Math.min(y0, y1) - 160;
+    const done = () => {
+      img.remove();
+      [miniCart, badge].forEach((el) => { el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); });
+    };
+    if (reduceMotion) { done(); return; }
+    img.animate([
+      { transform: `translate(${x0}px, ${y0}px) scale(.4) rotate(0deg)`, opacity: 0 },
+      { transform: `translate(${lerp(x0, x1, 0.5)}px, ${peak}px) scale(1.5) rotate(200deg)`, opacity: 1, offset: 0.45 },
+      { transform: `translate(${x1}px, ${y1}px) scale(.3) rotate(400deg)`, opacity: 0.6 },
+    ], { duration: 900, easing: "cubic-bezier(.5,0,.3,1)" }).onfinish = done;
+  }
+
+  measure();
+  const remeasure = () => measure();
   addEventListener("resize", remeasure);
   addEventListener("load", remeasure);
   if (document.fonts) document.fonts.ready.then(remeasure);
   new ResizeObserver(remeasure).observe(document.body);
-  frame();
+  requestAnimationFrame(render);
 
   // reveal blocks as they enter
   const io = new IntersectionObserver((entries) => entries.forEach((e) => {
@@ -290,6 +468,6 @@
       .forEach((c, i) => setTimeout(() => place(c, slotOf(c.j)), i * 90));
   }, 700);
   setTimeout(() => letters.forEach((l, i) => setTimeout(() => l.classList.add("in"), i * 38)), 1400);
-  setTimeout(() => { document.body.classList.remove("is-intro"); frame(); }, 2000);
+  setTimeout(() => document.body.classList.remove("is-intro"), 2000);
   setTimeout(startAuto, 4200);
 })();

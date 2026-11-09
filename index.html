@@ -149,6 +149,24 @@
       </div>
     </section>
 
+    <!-- marquee -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee__row" data-dir="1"><div class="marquee__track"><span>MATCHA</span><i>✦</i> <span>ICED</span><i>✦</i> <span>STRAWBERRY</span><i>✦</i> <span>OAT MILK</span><i>✦</i> <span>BLUEBERRY</span><i>✦</i> <span>STONE-GROUND</span><i>✦</i> <span>CRANBERRY</span><i>✦</i> <span>UJI</span><i>✦</i> <span>BLACKBERRY</span><i>✦</i> <span>MATCHA</span><i>✦</i> <span>ICED</span><i>✦</i> <span>STRAWBERRY</span><i>✦</i> <span>OAT MILK</span><i>✦</i> <span>BLUEBERRY</span><i>✦</i> <span>STONE-GROUND</span><i>✦</i> <span>CRANBERRY</span><i>✦</i> <span>UJI</span><i>✦</i> <span>BLACKBERRY</span><i>✦</i></div></div>
+      <div class="marquee__row marquee__row--alt" data-dir="-1"><div class="marquee__track"><span>MATCHA</span><i>✦</i> <span>ICED</span><i>✦</i> <span>STRAWBERRY</span><i>✦</i> <span>OAT MILK</span><i>✦</i> <span>BLUEBERRY</span><i>✦</i> <span>STONE-GROUND</span><i>✦</i> <span>CRANBERRY</span><i>✦</i> <span>UJI</span><i>✦</i> <span>BLACKBERRY</span><i>✦</i> <span>MATCHA</span><i>✦</i> <span>ICED</span><i>✦</i> <span>STRAWBERRY</span><i>✦</i> <span>OAT MILK</span><i>✦</i> <span>BLUEBERRY</span><i>✦</i> <span>STONE-GROUND</span><i>✦</i> <span>CRANBERRY</span><i>✦</i> <span>UJI</span><i>✦</i> <span>BLACKBERRY</span><i>✦</i></div></div>
+    </div>
+
+    <!-- dive in: the cup grows to fill the screen -->
+    <section class="zoom" id="dive">
+      <div class="zoom__sticky">
+        <div class="zoom__head">
+          <p class="eyebrow">Dive in</p>
+          <h2>Closer.</h2>
+        </div>
+        <div class="cup-anchor cup-anchor--zoom" data-anchor data-zoom data-rot="0" data-meta="0"></div>
+        <p class="zoom__hint">keep scrolling ↓</p>
+      </div>
+    </section>
+
     <!-- 03 flavours -->
     <section class="sec sec--cream sec--flavours" id="flavours">
       <div class="sec__grid sec__grid--flip">
@@ -191,6 +209,7 @@
   </div>
 
   <!-- the cup that travels with the scroll -->
+  <div class="cup-layer">
   <div class="float-cup" id="floatCup">
     <div class="cup" id="cup" aria-hidden="true">
         <svg viewBox="0 0 200 270">
@@ -283,6 +302,19 @@
       </button>
     </div>
   </div>
+  </div>
+
+  <!-- full-screen effects layer -->
+  <div class="fx" aria-hidden="true">
+    <canvas id="fxCanvas"></canvas>
+    <p class="fx__text" id="fxText">Every sip, a little cloud.</p>
+  </div>
+
+  <!-- floating mini cart -->
+  <a class="mini-cart" id="miniCart" href="#top" aria-label="Cart">
+    <svg viewBox="0 0 24 24"><path d="M2 3h2.6l2.5 11.2c.1.5.6.8 1.1.8h9.6c.5 0 .9-.3 1-.8L21 7H6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="19.5" r="1.6" fill="currentColor"/><circle cx="17" cy="19.5" r="1.6" fill="currentColor"/></svg>
+    <span class="mini-cart__n" id="miniCount"></span>
+  </a>
 
   <script src="script.js"></script>
 </body>
