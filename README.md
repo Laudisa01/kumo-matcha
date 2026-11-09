@@ -6,6 +6,8 @@ Frucht-Karten im Bogen-Karussell, der Becher wechselt je nach Sorte Farbe, Name 
 - Intro-Animation (Becher, Karten steigen hinter dem Matcha-Berg auf, Headline Buchstabe für Buchstabe)
 - Auto-Play, Klick auf Karte, Swipe/Drag, Pfeiltasten, horizontales Scrollen
 - Warenkorb-Zähler über die Preis-Karte
+- Scroll-Parallax: der Becher wandert beim Runterscrollen mit durch alle Abschnitte (Herkunft, Schichten, Sorten, Filialen) und dreht/neigt sich dabei; Hero-Ebenen und Deko bewegen sich in eigenen Geschwindigkeiten
+- Sorten-Kacheln im Abschnitt „Pick your fruit“ ändern den Becher live
 - Responsive (Desktop + Mobile), `prefers-reduced-motion` wird respektiert
 
 **Live:** https://laudisa01.github.io/kumo-matcha/
